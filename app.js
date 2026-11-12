@@ -4,23 +4,31 @@ const uid=()=>Math.random().toString(36).slice(2,9);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ld=(k,f)=>{try{return JSON.parse(localStorage.getItem(k))??f}catch{return f}};
 const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove('on'),2200)};
-const E=(name,sets,reps,rest)=>({id:uid(),name,sets,reps,rest,warm:[]});
+const E=(name,sets,reps,rest,ss)=>({id:uid(),name,sets,reps,rest,warm:[],...(ss?{ss}:{})});
+/* Upper = antagonist supersets (same 5th value = paired). Rest after each round = the longer planned rest of the pair. */
 const UL=[
-{id:'upperA',name:'Upper A',ex:[['Incline Isolated Chest Press',3,'6–9',180],['Lat Pulldown',3,'6–9',150],['Dumbbell Shoulder Press',3,'6–9',180],['Modified Wide-Grip Row',3,'6–9',150],['Lateral Raises',3,'6–9',90],['Face Pulls',2,'6–9',90],['Triceps Pushdown',3,'6–9',90],['Supinating Dumbbell Curls',3,'6–9',120]]},
-{id:'upperB',name:'Upper B',ex:[['Flat Chest Machine',3,'6–9',180],['Close-Grip Underhand Pulldown',3,'6–9',150],['Pec Deck',3,'6–9',120],['Reverse Pec Deck',3,'6–9',90],['Dip Machine',2,'6–9',150],['Overhead Cable Triceps Extension',3,'6–9',90],['Preacher Curls',3,'6–9',120]]},
+{id:'upper',name:'Upper',ex:[
+ ['Incline Isolated Chest Press',3,'6–9',180,'s1'],['Lat Pulldown',3,'6–9',150,'s1'],
+ ['Flat Chest Machine',3,'6–9',180,'s2'],['Close-Grip Underhand Pulldown',3,'6–9',150,'s2'],
+ ['Dumbbell Shoulder Press',3,'6–9',180,'s3'],['Modified Wide-Grip Row',3,'6–9',150,'s3'],
+ ['Pec Deck',3,'6–9',120,'s4'],['Reverse Pec Deck',3,'6–9',90,'s4'],
+ ['Triceps Pushdown',3,'6–9',90,'s5'],['Supinating Dumbbell Curls',3,'6–9',120,'s5'],
+ ['Overhead Cable Triceps Extension',3,'6–9',90,'s6'],['Preacher Curls',3,'6–9',120,'s6'],
+ ['Lateral Raises',3,'6–9',90,'s7'],['Face Pulls',2,'6–9',90,'s7'],
+ ['Dip Machine',2,'6–9',150]]},
 {id:'lower',name:'Lower',ex:[['Romanian Deadlift',3,'6–9',210],['Leg Press',3,'10–15',180],['Leg Extensions',3,'10–15',90],['Hamstring Curls',3,'10–15',120],['Calf Raises',3,'10–15',90],['Hanging Leg Raises',3,'10–15',90],['Cable Crunches',3,'10–15',75]]}];
 const ulDays=()=>UL.map(d=>({id:d.id,name:d.name,ex:d.ex.map(a=>E(...a))}));
 const defaults=()=>({days:ulDays(),
-set:{trans:60,sound:true,vib:true,notify:false},templates:[],history:[]});
+set:{trans:60,ss:15,sound:true,vib:true,notify:false},templates:[],history:[]});
 let D=ld('grm.data',null)||defaults(),S=ld('grm.active',null),tab='workout',sum=null,wd=D.days[0]?.id,inst=null;
-/* one-time migration: Push/Pull/Legs -> Upper/Lower, keeping your edits (rest, sets, warm-ups) and history */
-(function(){const old=['push','pull','legs'];if(!D.days.some(d=>old.includes(d.id)))return;
- const pool={},extra={upper:[],lower:[]};
- D.days.filter(d=>old.includes(d.id)).forEach(d=>d.ex.forEach(x=>{pool[x.name]?(d.id==='legs'?extra.lower:extra.upper).push(x):(pool[x.name]=x)}));
- const used=new Set(),nd=UL.map(t=>({id:t.id,name:t.name,ex:t.ex.map(a=>{const x=pool[a[0]];used.add(a[0]);return x||E(...a)})}));
- D.days.filter(d=>old.includes(d.id)).forEach(d=>d.ex.forEach(x=>{if(!used.has(x.name)){used.add(x.name);(d.id==='legs'?extra.lower:extra.upper).push(x)}}));
- nd[1].ex.push(...extra.upper);nd[2].ex.push(...extra.lower);
- D.days=[...nd,...D.days.filter(d=>!old.includes(d.id))];wd=D.days[0].id;
+D.set={...defaults().set,...D.set};
+/* migration: Push/Pull/Legs or Upper A/B -> Upper (supersets) + Lower, keeping your edits (rest, sets, warm-ups) and history */
+(function(){const old=['push','pull','legs','upperA','upperB'];if(!D.days.some(d=>old.includes(d.id)))return;
+ const od=D.days.filter(d=>old.includes(d.id)),pool={};
+ od.forEach(d=>d.ex.forEach(x=>{if(!pool[x.name])pool[x.name]=x}));
+ const used=new Set(),nd=UL.map(t=>({id:t.id,name:t.name,ex:t.ex.map(a=>{used.add(a[0]);const x=pool[a[0]];if(!x)return E(...a);delete x.ss;if(a[4])x.ss=a[4];return x})}));
+ od.forEach(d=>d.ex.forEach(x=>{if(!used.has(x.name)){used.add(x.name);delete x.ss;nd[d.id==='legs'||d.id==='lower'?1:0].ex.push(x)}}));
+ D.days=[...nd,...D.days.filter(d=>!old.includes(d.id)&&d.id!=='upper'&&d.id!=='lower')];wd=D.days[0].id;
  try{localStorage.setItem('grm.data',JSON.stringify(D))}catch{}})();
 const save=()=>{try{localStorage.setItem('grm.data',JSON.stringify(D))}catch{toast('Storage full or blocked')}};
 const saveS=()=>{try{S?localStorage.setItem('grm.active',JSON.stringify(S)):localStorage.removeItem('grm.active')}catch{}};
@@ -44,12 +52,27 @@ async function wake(){try{if(S&&'wakeLock'in navigator&&!wl){wl=await navigator.
 function unwake(){try{wl&&wl.release()}catch{}wl=null}
 
 /* ---------- session helpers ---------- */
-const steps=e=>e.warm.length+e.sets;
-function cs(){const e=S.ex[S.i],w=S.k<e.warm.length;return{e,warm:w,n:w?S.k+1:S.k-e.warm.length+1,tot:w?e.warm.length:e.sets}}
-function nextText(){const e=S.ex[S.i];if(S.k+1<steps(e)){const n=S.k+1,w=n<e.warm.length;return e.name+' · '+(w?'warm-up ':'set ')+(w?n+1:n-e.warm.length+1)}return 'finish'}
+/* flat step list: warm-ups of a superset group first, then work sets alternate A1 B1 A2 B2 ... */
+function buildPlan(ex){const plan=[];let i=0;
+ while(i<ex.length){let j=i+1;while(ex[i].ss&&j<ex.length&&ex[j].ss===ex[i].ss)j++;
+  const g=[];for(let a=i;a<j;a++)g.push(a);
+  g.forEach(a=>ex[a].warm.forEach((_,n)=>plan.push({ei:a,warm:true,n,grp:i})));
+  const mx=Math.max(...g.map(a=>ex[a].sets));
+  for(let r=0;r<mx;r++)g.forEach(a=>{if(r<ex[a].sets)plan.push({ei:a,warm:false,n:r,grp:i})});
+  i=j}
+ return plan}
+const grpOf=(st)=>[...new Set(S.plan.filter(x=>x.grp===st.grp).map(x=>x.ei))];
+function cs(){const st=S.plan[S.p],e=S.ex[st.ei];return{st,e,warm:st.warm,n:st.n+1,tot:st.warm?e.warm.length:e.sets}}
+function restAfter(p){const st=S.plan[p],nx=S.plan[p+1],e=S.ex[st.ei];
+ if(!nx)return{kind:'end',d:0};
+ if(nx.grp!==st.grp)return{kind:'trans',d:D.set.trans};
+ if(st.warm)return{kind:'rest',d:e.warm[st.n].rest};
+ if(!nx.warm&&nx.ei>st.ei)return{kind:'ss',d:D.set.ss};
+ return{kind:'rest',d:Math.max(...grpOf(st).map(i=>S.ex[i].rest))}}
+function nextText(){const nx=S.plan[S.p+1];if(!nx)return 'finish';return S.ex[nx.ei].name+' · '+(nx.warm?'warm-up ':'set ')+(nx.n+1)}
 function prevSets(name,after=-1){for(let i=after+1;i<D.history.length;i++){const x=D.history[i].ex.find(x=>x.name===name&&x.work.length);if(x)return x.work}return null}
 function prefill(){
- const c=cs(),same=S.log.filter(l=>l.ei===S.i&&l.warm===c.warm).pop();
+ const c=cs(),same=S.log.filter(l=>l.ei===c.st.ei&&l.warm===c.warm).pop();
  let w=0,r=0;
  if(c.warm){const x=c.e.warm[c.n-1];w=x.w;r=x.r}
  else if(same){w=same.w;r=same.r}
@@ -62,22 +85,23 @@ const closeRest=n=>{if(S.timer){S.rests.push(Math.max(0,n-S.timer.start));S.time
 function start(id){
  if(S&&!confirm('A workout is in progress. Discard it and start a new one?'))return;
  const d=D.days.find(x=>x.id===id);if(!d||!d.ex.length)return toast('Add exercises in Settings first');
- S={id:uid(),day:d.name,start:Date.now(),ex:JSON.parse(JSON.stringify(d.ex)),i:0,k:0,log:[],timer:null,rests:[],hint:null};
+ S={id:uid(),day:d.name,start:Date.now(),ex:JSON.parse(JSON.stringify(d.ex)),p:0,log:[],timer:null,rests:[],hint:null};S.plan=buildPlan(S.ex);S.i=S.plan[0].ei;
  prefill();saveS();unlock();wake();tab='timer';render();
 }
 function complete(){
- unlock();const c=cs(),n=Date.now();closeRest(n);
- const q=S.cur,l={ei:S.i,warm:c.warm,w:+q.w||0,r:+q.r||0,rir:q.rir,fat:q.fat,note:(q.note||'').trim(),at:n};
- S.log.push(l);S.hint=null;S.k++;
- let kind='rest',d=c.warm?c.e.warm[c.n-1].rest:c.e.rest;
- if(!c.warm){
-  const p=S.log.filter(x=>x.ei===S.i&&!x.warm).slice(-2,-1)[0];let add=0,msg='';
+ unlock();const c=cs(),n=Date.now(),ra=restAfter(S.p);closeRest(n);
+ const q=S.cur,l={ei:c.st.ei,warm:c.warm,w:+q.w||0,r:+q.r||0,rir:q.rir,fat:q.fat,note:(q.note||'').trim(),at:n};
+ S.log.push(l);S.hint=null;S.p++;
+ if(S.p>=S.plan.length)return finish(true);
+ S.i=S.plan[S.p].ei;
+ if(!c.warm&&ra.kind==='rest'){
+  const p=S.log.filter(x=>x.ei===l.ei&&!x.warm).slice(-2,-1)[0];let add=0,msg='';
   if(p){const dr=p.r-l.r;add=dr>=3?60:dr>=2?30:0;if(add)msg='Reps dropped from '+p.r+' to '+l.r+'.'}
   if(l.fat==='heavy'&&add<30){add=30;msg='You marked that set heavy.'}
   if(add)S.hint={add,msg};
  }
- if(S.k>=steps(c.e)){S.i++;S.k=0;kind='trans';d=D.set.trans;S.hint=null;if(S.i>=S.ex.length)return finish(true)}
- startTimer(kind,d);prefill();saveS();render();
+ if(ra.d>0)startTimer(ra.kind,ra.d);
+ prefill();saveS();render();
 }
 function finish(auto){
  const n=Date.now();closeRest(n);
@@ -114,21 +138,21 @@ function vWork(){
  h+='<div class="days">'+D.days.map(x=>`<button class="day ${d&&x.id===d.id?'on':''}" data-a="day" data-v="${x.id}">${esc(x.name)}</button>`).join('')+'</div>';
  if(!d)return h+'<p>No workout days yet. Add one in Settings.</p>';
  const ts=d.ex.reduce((a,e)=>a+e.sets,0);
- h+=`<div class="card"><p>${d.ex.length} exercises · ${ts} working sets</p>`+d.ex.map(e=>`<div class="ex"><b>${esc(e.name)}</b><span class="mu">${e.sets} × ${esc(e.reps)} · ${sec(e.rest)}${e.warm.length?' · '+e.warm.length+' warm-up':''}</span></div>`).join('')+'</div>';
+ h+=`<div class="card"><p>${d.ex.length} exercises · ${ts} working sets</p>`+d.ex.map((e,i)=>`<div class="ex"><b>${(e.ss&&(d.ex[i-1]?.ss===e.ss||d.ex[i+1]?.ss===e.ss))?'<span style="color:var(--ac)">⇄ </span>':''}${esc(e.name)}</b><span class="mu">${e.sets} × ${esc(e.reps)} · ${sec(e.rest)}${e.warm.length?' · '+e.warm.length+' warm-up':''}</span></div>`).join('')+'</div>';
  return h+`<div class="dock"><button class="btn pri big" data-a="start" data-v="${d.id}">START ${esc(d.name.toUpperCase())}</button></div>`;
 }
 function vTimer(){
  if(sum)return vSum(sum);
- if(!S)return '<div class="empty"><h2>No workout running</h2><p>Pick Upper A, Upper B or Lower to begin.</p><button class="btn pri" data-a="tab" data-v="workout">Choose a workout</button></div>';
+ if(!S)return '<div class="empty"><h2>No workout running</h2><p>Pick Upper or Lower to begin.</p><button class="btn pri" data-a="tab" data-v="workout">Choose a workout</button></div>';
  const c=cs(),t=S.timer,tot=S.ex.reduce((a,e)=>a+e.sets,0),dn=S.log.filter(l=>!l.warm).length,q=S.cur;
- const prev=prevSets(c.e.name),today=S.log.filter(l=>l.ei===S.i&&!l.warm);
+ const prev=prevSets(c.e.name),today=S.log.filter(l=>l.ei===c.st.ei&&!l.warm),ra=restAfter(S.p),pg=grpOf(c.st).filter(i=>i!==c.st.ei);
  const left=t?(t.paused!=null?t.paused:Math.max(0,t.end-Date.now())):0,done=t&&(t.fired||(t.paused==null&&left===0));
- const lbl=!t?'Start your set':t.paused!=null?'Paused':done?'Rest complete':t.kind==='trans'?'Moving to next exercise':'Rest remaining';
- const rec=c.warm?c.e.warm[c.n-1].rest:c.e.rest,cap=!t?'Rest after this set: '+sec(rec):(t.kind==='trans'?'Transition':'Planned rest')+': '+sec(t.base/1000)+(t.total!==t.base?' (+'+Math.round((t.total-t.base)/1000)+' s)':'');
+ const lbl=!t?'Start your set':t.paused!=null?'Paused':done?(t.kind==='ss'?'Go — superset':'Rest complete'):t.kind==='trans'?'Moving to next exercise':t.kind==='ss'?'Switch to superset partner':'Rest remaining';
+ const rec=ra.d,cap=!t?(ra.kind==='ss'?'Then switch'+(ra.d?' ('+ra.d+' s)':' straight away'):ra.kind==='end'?'Last set':(ra.kind==='trans'?'Then next exercise: ':'Rest after this set: ')+sec(rec)):(t.kind==='trans'?'Transition':t.kind==='ss'?'Switch time':'Planned rest')+': '+sec(t.base/1000)+(t.total!==t.base?' (+'+Math.round((t.total-t.base)/1000)+' s)':'');
  const ring=`<div class="ringw ${done?'done':''} ${!t?'idle':''}"><svg viewBox="0 0 260 260"><circle class="tr" cx="130" cy="130" r="114"/><circle id="pr" class="pr" cx="130" cy="130" r="114" stroke-dasharray="${C}" style="stroke-dashoffset:${!t?C:done?0:C*(1-left/t.total)}"/></svg><div class="rc"><div class="mu sm">${lbl}</div><div id="td">${!t?sec(rec).padStart(5,'0'):fmt(left)}</div><div class="mu sm">${cap}</div></div></div>`;
  const fat=['fresh','ok','heavy'];
  return `<div class="mu sm">${esc(S.day)} · ${dn} / ${tot} working sets</div><div class="bar"><i style="width:${tot?dn/tot*100:0}%"></i></div>
- <div class="cx"><div class="name">${esc(c.e.name)}</div><div class="set">${c.warm?'Warm-up':'Set'} ${c.n} / ${c.tot}${c.warm?'':' · target '+esc(c.e.reps)+' reps'}</div></div>
+ <div class="cx"><div class="name">${esc(c.e.name)}</div><div class="set">${c.warm?'Warm-up':'Set'} ${c.n} / ${c.tot}${c.warm?'':' · target '+esc(c.e.reps)+' reps'}</div>${pg.length?`<div class="mu sm">⇄ Superset with ${esc(pg.map(i=>S.ex[i].name).join(', '))}</div>`:''}</div>
  ${ring}
  <p class="cx">Next: ${esc(nextText()==='finish'?'finish workout':nextText())}</p>
  ${S.hint&&t&&!done?`<div class="hint"><b>${esc(S.hint.msg)}</b> Consider ${S.hint.add} more seconds before the next set.<div class="row"><button class="btn pri" data-a="hint">Add ${S.hint.add} s</button><button class="btn" data-a="nohint">Keep planned rest</button></div></div>`:''}
@@ -169,11 +193,11 @@ function vSet(){
  ${d.ex.map((x,i)=>`<div class="exc"><label>Exercise</label><input data-f="name" data-d="${d.id}" data-e="${x.id}" value="${esc(x.name)}">
  <div class="g3" style="margin-top:8px"><div><label>Sets</label><input type="number" inputmode="numeric" data-f="sets" data-d="${d.id}" data-e="${x.id}" value="${x.sets}"></div><div><label>Reps</label><input data-f="reps" data-d="${d.id}" data-e="${x.id}" value="${esc(x.reps)}"></div><div><label>Rest (s)</label><input type="number" inputmode="numeric" data-f="rest" data-d="${d.id}" data-e="${x.id}" value="${x.rest}"></div></div>
  ${x.warm.map((w,j)=>`<div class="g3" style="margin-top:8px;align-items:end"><div><label>Warm-up ${j+1} kg</label><input type="number" inputmode="decimal" data-f="w" data-w="${j}" data-d="${d.id}" data-e="${x.id}" value="${w.w}"></div><div><label>Reps</label><input type="number" inputmode="numeric" data-f="r" data-w="${j}" data-d="${d.id}" data-e="${x.id}" value="${w.r}"></div><div class="row"><div><label>Rest (s)</label><input type="number" inputmode="numeric" data-f="rest" data-w="${j}" data-d="${d.id}" data-e="${x.id}" value="${w.rest}"></div><button class="btn dng" style="flex:0 0 48px" data-a="delwarm" data-d="${d.id}" data-e="${x.id}" data-v="${j}">✕</button></div></div>`).join('')}
- <div class="row" style="margin-top:8px"><button class="btn" data-a="addwarm" data-d="${d.id}" data-e="${x.id}">+ Warm-up</button><button class="btn" data-a="up" data-d="${d.id}" data-v="${i}">↑</button><button class="btn" data-a="down" data-d="${d.id}" data-v="${i}">↓</button><button class="btn dng" data-a="delex" data-d="${d.id}" data-v="${i}">Remove</button></div></div>`).join('')}
+ <div class="row" style="margin-top:8px"><button class="btn" data-a="addwarm" data-d="${d.id}" data-e="${x.id}">+ Warm-up</button>${i<d.ex.length-1?`<button class="btn" data-a="pair" data-d="${d.id}" data-v="${i}">${x.ss&&d.ex[i+1].ss===x.ss?'Unpair ↓':'⇄ Pair ↓'}</button>`:''}<button class="btn" data-a="up" data-d="${d.id}" data-v="${i}">↑</button><button class="btn" data-a="down" data-d="${d.id}" data-v="${i}">↓</button><button class="btn dng" data-a="delex" data-d="${d.id}" data-v="${i}">Remove</button></div></div>`).join('')}
  <div class="row"><button class="btn" data-a="addex" data-d="${d.id}">+ Add exercise</button><button class="btn" data-a="savetpl" data-d="${d.id}">Save as template</button></div>
  <button class="btn dng full" style="margin-top:8px" data-a="delday" data-d="${d.id}">Delete this day</button></div></details>`).join('');
  h+='<button class="btn full" style="margin-bottom:12px" data-a="addday">+ Add workout day</button>';
- h+=`<div class="card"><h2>Preferences</h2><label>Exercise transition (seconds)</label><input type="number" inputmode="numeric" data-f="set" data-k="trans" value="${D.set.trans}">${sw('sound','Alarm sound')}${sw('vib','Vibration')}${sw('notify','Notifications','Shown only if the page is still running in the background')}</div>`;
+ h+=`<div class="card"><h2>Preferences</h2><label>Exercise transition (seconds)</label><input type="number" inputmode="numeric" data-f="set" data-k="trans" value="${D.set.trans}"><label style="margin-top:10px">Superset switch time (seconds, 0 = straight away)</label><input type="number" inputmode="numeric" data-f="set" data-k="ss" value="${D.set.ss}">${sw('sound','Alarm sound')}${sw('vib','Vibration')}${sw('notify','Notifications','Shown only if the page is still running in the background')}</div>`;
  h+=`<div class="card"><h2>Templates</h2>${D.templates.length?D.templates.map((t,i)=>`<div class="ex"><b>${esc(t.name)}</b><span class="row" style="flex:0 0 auto"><button class="btn" data-a="loadtpl" data-v="${i}">Load</button><button class="btn dng" data-a="deltpl" data-v="${i}">✕</button></span></div>`).join(''):'<p>Save a day as a template from its section above.</p>'}</div>`;
  h+=`<div class="card"><h2>Data</h2><p style="margin-bottom:10px">Everything stays on this phone.</p><div class="g2"><button class="btn" data-a="export">Export JSON</button><button class="btn" data-a="import">Import JSON</button></div><button class="btn dng full" style="margin-top:8px" data-a="resethist">Reset workout history</button>${inst?'<button class="btn pri full" style="margin-top:8px" data-a="install">Install app</button>':''}</div>`;
  return h;
@@ -204,6 +228,7 @@ const A={
  delday:el=>{if(confirm('Delete this day and its exercises?')){D.days=D.days.filter(d=>d.id!==el.dataset.d);wd=D.days[0]?.id;save();render()}},
  addex:el=>{dayOf(el).ex.push(E('New exercise',3,'6–9',120));save();render()},
  delex:el=>{if(confirm('Remove this exercise?')){dayOf(el).ex.splice(+el.dataset.v,1);save();render()}},
+ pair:el=>{const a=dayOf(el).ex,i=+el.dataset.v,x=a[i],y=a[i+1];if(!y)return;if(x.ss&&y.ss===x.ss){delete x.ss;delete y.ss}else{const k=x.ss&&a[i-1]?.ss===x.ss?x.ss:uid();x.ss=k;y.ss=k}save();render()},
  up:el=>{const a=dayOf(el).ex,i=+el.dataset.v;if(i>0){[a[i-1],a[i]]=[a[i],a[i-1]];save();render()}},
  down:el=>{const a=dayOf(el).ex,i=+el.dataset.v;if(i<a.length-1){[a[i+1],a[i]]=[a[i],a[i+1]];save();render()}},
  addwarm:el=>{dayOf(el).ex.find(x=>x.id===el.dataset.e).warm.push({w:0,r:8,rest:60});save();render()},
@@ -237,5 +262,6 @@ $('#imp').addEventListener('change',async e=>{
 });
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();inst=e;if(tab==='settings')render()});
 if('serviceWorker'in navigator)addEventListener('load',()=>navigator.serviceWorker.register('service-worker.js').catch(()=>{}));
+if(S&&!S.plan){S.plan=buildPlan(S.ex);S.p=Math.max(0,S.plan.findIndex(x=>x.ei===S.i&&(x.warm?x.n:S.ex[x.ei].warm.length+x.n)===S.k));S.i=S.plan[S.p].ei;saveS()}
 if(S){wake();tab='timer'}
 render();
