@@ -5,30 +5,22 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const ld=(k,f)=>{try{return JSON.parse(localStorage.getItem(k))??f}catch{return f}};
 const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove('on'),2200)};
 const E=(name,sets,reps,rest,ss)=>({id:uid(),name,sets,reps,rest,warm:[],...(ss?{ss}:{})});
-/* Upper = antagonist supersets (same 5th value = paired). Rest after each round = the longer planned rest of the pair. */
+const PLAN_VER=4;
 const UL=[
-{id:'upper',name:'Upper',ex:[
- ['Incline Isolated Chest Press',3,'6–9',180,'s1'],['Lat Pulldown',3,'6–9',150,'s1'],
- ['Flat Chest Machine',3,'6–9',180,'s2'],['Close-Grip Underhand Pulldown',3,'6–9',150,'s2'],
- ['Dumbbell Shoulder Press',3,'6–9',180,'s3'],['Modified Wide-Grip Row',3,'6–9',150,'s3'],
- ['Pec Deck',3,'6–9',120,'s4'],['Reverse Pec Deck',3,'6–9',90,'s4'],
- ['Triceps Pushdown',3,'6–9',90,'s5'],['Supinating Dumbbell Curls',3,'6–9',120,'s5'],
- ['Overhead Cable Triceps Extension',3,'6–9',90,'s6'],['Preacher Curls',3,'6–9',120,'s6'],
- ['Lateral Raises',3,'6–9',90,'s7'],['Face Pulls',2,'6–9',90,'s7'],
- ['Dip Machine',2,'6–9',150]]},
-{id:'lower',name:'Lower',ex:[['Romanian Deadlift',3,'6–9',210],['Leg Press',3,'10–15',180],['Leg Extensions',3,'10–15',90],['Hamstring Curls',3,'10–15',120],['Calf Raises',3,'10–15',90],['Hanging Leg Raises',3,'10–15',90],['Cable Crunches',3,'10–15',75]]}];
+{id:'push',name:'Push',ex:[['Incline Isolated Chest Press',3,'6–9',180],['Flat Chest Machine',3,'6–9',180],['Pec Deck',3,'6–9',120],['Machine Shoulder Press',3,'6–9',180],['Lateral Raises',3,'6–9',90],['Overhead Cable Triceps Extension',3,'6–9',90],['Triceps Pushdown',3,'6–9',90],['Dip Machine',2,'6–9',150]]},
+{id:'pull',name:'Pull',ex:[['Lat Pulldown',3,'6–9',150],['Smith Machine Rows',2,'6–9',150],['Modified Wide-Grip Row',2,'6–9',150],['Reverse Pec Deck',3,'6–9',90],['Face Pulls',2,'6–9',90],['Supinating Dumbbell Curls',3,'6–9',120],['Preacher Curls',3,'6–9',120]]},
+{id:'legs',name:'Legs',ex:[['Romanian Deadlift',3,'6–9',210],['Leg Press',3,'10–15',180],['Leg Extensions',3,'10–15',90],['Hamstring Curls',3,'10–15',120],['Calf Raises',3,'10–15',90],['Hanging Leg Raises',3,'10–15',90],['Cable Crunches',3,'10–15',75]]}];
 const ulDays=()=>UL.map(d=>({id:d.id,name:d.name,ex:d.ex.map(a=>E(...a))}));
-const defaults=()=>({days:ulDays(),
+const defaults=()=>({planVer:PLAN_VER,days:ulDays(),
 set:{trans:60,ss:15,sound:true,vib:true,notify:false},templates:[],history:[]});
 let D=ld('grm.data',null)||defaults(),S=ld('grm.active',null),tab='workout',sum=null,wd=D.days[0]?.id,inst=null;
 D.set={...defaults().set,...D.set};
-/* migration: Push/Pull/Legs or Upper A/B -> Upper (supersets) + Lower, keeping your edits (rest, sets, warm-ups) and history */
-(function(){const old=['push','pull','legs','upperA','upperB'];if(!D.days.some(d=>old.includes(d.id)))return;
- const od=D.days.filter(d=>old.includes(d.id)),pool={};
- od.forEach(d=>d.ex.forEach(x=>{if(!pool[x.name])pool[x.name]=x}));
- const used=new Set(),nd=UL.map(t=>({id:t.id,name:t.name,ex:t.ex.map(a=>{used.add(a[0]);const x=pool[a[0]];if(!x)return E(...a);delete x.ss;if(a[4])x.ss=a[4];return x})}));
- od.forEach(d=>d.ex.forEach(x=>{if(!used.has(x.name)){used.add(x.name);delete x.ss;nd[d.id==='legs'||d.id==='lower'?1:0].ex.push(x)}}));
- D.days=[...nd,...D.days.filter(d=>!old.includes(d.id)&&d.id!=='upper'&&d.id!=='lower')];wd=D.days[0].id;
+/* one-time reset of the plan to the Push/Pull/Legs list above; history, settings, templates and warm-ups are kept */
+(function(){if(D.planVer===PLAN_VER)return;
+ const old=['push','pull','legs','upperA','upperB','upper','lower'],warm={};
+ D.days.forEach(d=>d.ex.forEach(x=>{if(x.warm?.length&&!warm[x.name])warm[x.name]=x.warm}));
+ const nd=ulDays();nd.forEach(d=>d.ex.forEach(x=>{if(warm[x.name])x.warm=warm[x.name]}));
+ D.days=[...nd,...D.days.filter(d=>!old.includes(d.id))];D.planVer=PLAN_VER;wd=D.days[0].id;
  try{localStorage.setItem('grm.data',JSON.stringify(D))}catch{}})();
 const save=()=>{try{localStorage.setItem('grm.data',JSON.stringify(D))}catch{toast('Storage full or blocked')}};
 const saveS=()=>{try{S?localStorage.setItem('grm.active',JSON.stringify(S)):localStorage.removeItem('grm.active')}catch{}};
@@ -143,7 +135,7 @@ function vWork(){
 }
 function vTimer(){
  if(sum)return vSum(sum);
- if(!S)return '<div class="empty"><h2>No workout running</h2><p>Pick Upper or Lower to begin.</p><button class="btn pri" data-a="tab" data-v="workout">Choose a workout</button></div>';
+ if(!S)return '<div class="empty"><h2>No workout running</h2><p>Pick Push, Pull or Legs to begin.</p><button class="btn pri" data-a="tab" data-v="workout">Choose a workout</button></div>';
  const c=cs(),t=S.timer,tot=S.ex.reduce((a,e)=>a+e.sets,0),dn=S.log.filter(l=>!l.warm).length,q=S.cur;
  const prev=prevSets(c.e.name),today=S.log.filter(l=>l.ei===c.st.ei&&!l.warm),ra=restAfter(S.p),pg=grpOf(c.st).filter(i=>i!==c.st.ei);
  const left=t?(t.paused!=null?t.paused:Math.max(0,t.end-Date.now())):0,done=t&&(t.fired||(t.paused==null&&left===0));
